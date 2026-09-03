@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Market Breadth</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --card: #161b22;
+      --border: #30363d;
+      --text: #f0f6fc;
+      --muted: #8b949e;
+      --green: #238636;
+      --red: #da3633;
+      --green-text: #3fb950;
+      --red-text: #f85149;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 12px; }
+
+    header { display: flex; justify-content: space-between; align-items: center; padding: 8px 0 12px; border-bottom: 1px solid var(--border); margin-bottom: 12px; }
+    .title { font-size: 1.1rem; font-weight: 700; }
+    .updated { font-size: 0.75rem; color: var(--muted); }
+
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 14px; margin-bottom: 12px; }
+    .head-row { display: flex; justify-content: space-between; font-size: 0.9rem; font-weight: 600; margin-bottom: 10px; }
+    
+    .ad-bar { display: flex; height: 14px; border-radius: 4px; overflow: hidden; margin: 8px 0; background: #21262d; }
+    .adv-fill { background: var(--green); transition: width 0.3s ease; }
+    .dec-fill { background: var(--red); transition: width 0.3s ease; }
+
+    .grid-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+    .metric-box { background: #0d1117; padding: 8px; border-radius: 6px; text-align: center; border: 1px solid var(--border); }
+    .metric-box .label { font-size: 0.7rem; color: var(--muted); text-transform: uppercase; }
+    .metric-box .val { font-size: 1.1rem; font-weight: 700; margin-top: 2px; }
+
+    .search-bar { width: 100%; padding: 10px 12px; background: #0d1117; border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 0.9rem; margin-bottom: 10px; outline: none; }
+    .stock-list { display: flex; flex-direction: column; gap: 6px; max-height: calc(100vh - 280px); overflow-y: auto; }
+    .stock-row { display: flex; justify-content: space-between; align-items: center; background: #0d1117; border: 1px solid var(--border); border-radius: 6px; padding: 10px; }
+    .stock-sym { font-weight: 700; font-size: 0.95rem; }
+    .stock-vol { font-size: 0.75rem; color: var(--muted); margin-top: 2px; }
+    .stock-right { text-align: right; }
+    .stock-prc { font-size: 0.9rem; font-weight: 600; }
+    .tag { font-size: 0.75rem; padding: 2px 6px; border-radius: 4px; font-weight: 700; display: inline-block; margin-top: 2px; }
+    .tag-up { background: rgba(63, 185, 80, 0.15); color: var(--green-text); }
+    .tag-down { background: rgba(248, 81, 73, 0.15); color: var(--red-text); }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="title">Market Breadth</div>
+    <div class="updated" id="syncLabel">Fetching...</div>
+  </header>
+
+  <!-- WIDGET 1: MARKET BREADTH -->
+  <div class="card">
+    <div class="head-row">
+      <span>Advances / Declines</span>
+      <span id="sentimentLabel" style="color: var(--green-text)">--</span>
+    </div>
+
+    <div style="display: flex; justify-content: space-between; font-size: 0.8rem;">
+      <span style="color: var(--green-text)">Adv: <strong id="advCount">0</strong></span>
+      <span style="color: var(--red-text)">Dec: <strong id="decCount">0</strong></span>
+    </div>
+
+    <div class="ad-bar">
+      <div id="advBar" class="adv-fill" style="width: 50%;"></div>
+      <div id="decBar" class="dec-fill" style="width: 50%;"></div>
+    </div>
+
+    <div class="grid-metrics">
+      <div class="metric-box">
+        <div class="label">A/D Ratio</div>
+        <div class="val" id="ratioVal">--</div>
+      </div>
+      <div class="metric-box">
+        <div class="label">Adv Participation</div>
+        <div class="val" id="advPct">--%</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- WIDGET 2: ALL STOCKS TABLE -->
+  <div class="card">
+    <input type="text" id="filterInput" class="search-bar" placeholder="Search stock symbol..." oninput="handleSearch()">
+    <div class="stock-list" id="stockContainer">
+      <div style="text-align: center; color: var(--muted); padding: 20px;">Loading scanner data...</div>
+    </div>
+  </div>
+
+  <script>
+    let list = [];
+
+    async function loadData() {
+      try {
+        const res = await fetch('data.json?v=' + Date.now());
+        const data = await res.json();
+
+        document.getElementById('syncLabel').innerText = data.time;
+
+        const b = data.breadth;
+        document.getElementById('advCount').innerText = b.adv;
+        document.getElementById('decCount').innerText = b.dec;
+        document.getElementById('ratioVal').innerText = b.ratio;
+        document.getElementById('advPct').innerText = b.pct_adv + '%';
+        document.getElementById('advBar').style.width = b.pct_adv + '%';
+        document.getElementById('decBar').style.width = (100 - b.pct_adv) + '%';
+        
+        const sLabel = document.getElementById('sentimentLabel');
+        sLabel.innerText = b.status;
+        sLabel.style.color = b.status === 'Bullish' ? 'var(--green-text)' : 'var(--red-text)';
+
+        list = data.stocks;
+        render(list);
+      } catch (e) {
+        document.getElementById('syncLabel').innerText = 'Initializing feed...';
+      }
+    }
+
+    function render(items) {
+      const container = document.getElementById('stockContainer');
+      container.innerHTML = '';
+
+      items.forEach(item => {
+        const isUp = item.c >= 0;
+        const row = document.createElement('div');
+        row.className = 'stock-row';
+        row.innerHTML = `
+          <div>
+            <div class="stock-sym">${item.s}</div>
+            <div class="stock-vol">Vol: ${item.v}</div>
+          </div>
+          <div class="stock-right">
+            <div class="stock-prc">₹${item.p.toFixed(2)}</div>
+            <div class="tag ${isUp ? 'tag-up' : 'tag-down'}">${isUp ? '+' : ''}${item.c.toFixed(2)}%</div>
+          </div>
+        `;
+        container.appendChild(row);
+      });
+    }
+
+    function handleSearch() {
+      const q = document.getElementById('filterInput').value.toUpperCase();
+      render(list.filter(x => x.s.toUpperCase().includes(q)));
+    }
+
+    loadData();
+    setInterval(loadData, 30000);
+  </script>
+</body>
+</html>
