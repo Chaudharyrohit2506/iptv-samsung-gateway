@@ -1,5 +1,10 @@
-import os, time, uuid, shutil, subprocess, threading
+import os, time, uuid, subprocess
 from pathlib import Path
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError, URLError
+import json
+
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse, FileResponse, PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -26,24 +31,57 @@ def check_key(key: str | None):
         raise HTTPException(401, "Invalid gateway key")
 
 def xtream_url(action: str = "", category_id: str | None = None, series_id: str | None = None):
-    q = f"?username={USERNAME}&password={PASSWORD}"
+    params = {"username": USERNAME, "password": PASSWORD}
     if action:
-        q += f"&action={action}"
+        params["action"] = action
     if category_id:
-        q += f"&category_id={category_id}"
+        params["category_id"] = category_id
     if series_id:
-        q += f"&series_id={series_id}"
-    return SERVER + "/player_api.php" + q
+        params["series_id"] = series_id
+    return SERVER + "/player_api.php?" + urlencode(params)
 
 def get_json(url: str):
-    import urllib.request, json
-    req = urllib.request.Request(url, headers={"User-Agent": "IPTV-Gateway/1.0"})
-    with urllib.request.urlopen(req, timeout=20) as r:
-        return json.loads(r.read().decode("utf-8", errors="replace"))
+    req = Request(url, headers={"User-Agent": "IPTV-Gateway/1.0", "Accept": "application/json,*/*"})
+    try:
+        with urlopen(req, timeout=25) as r:
+            status = getattr(r, "status", 200)
+            body = r.read().decode("utf-8", errors="replace")
+    except HTTPError as e:
+        body = e.read().decode("utf-8", errors="replace")
+        print(f"Xtream HTTP error: status={e.code}, body={body[:300]!r}")
+        raise HTTPException(502, f"Xtream server returned HTTP {e.code}")
+    except URLError as e:
+        print(f"Xtream connection error: {e}")
+        raise HTTPException(502, "Could not connect to Xtream server")
+    except Exception as e:
+        print(f"Xtream request error: {type(e).__name__}: {e}")
+        raise HTTPException(502, "Xtream request failed")
+
+    if status < 200 or status >= 300:
+        print(f"Xtream unexpected status: {status}, body={body[:300]!r}")
+        raise HTTPException(502, f"Xtream server returned HTTP {status}")
+
+    try:
+        return json.loads(body)
+    except json.JSONDecodeError:
+        print(f"Xtream non-JSON response: {body[:500]!r}")
+        raise HTTPException(
+            502,
+            "Xtream server returned a non-JSON response. Check the Render logs for the upstream response."
+        )
 
 @app.get("/health")
 def health():
-    return {"ok": True, "xtream_server": SERVER, "configured": bool(USERNAME and PASSWORD)}
+    return {
+        "ok": True,
+        "xtream_server": SERVER,
+        "configured": bool(USERNAME and PASSWORD),
+        "has_username": bool(USERNAME),
+        "has_password": bool(PASSWORD),
+        "username_length": len(USERNAME),
+        "password_length": len(PASSWORD),
+        "has_gateway_key": bool(GATEWAY_KEY),
+    }
 
 @app.get("/api/catalog")
 def catalog(kind: str = Query("live"), category_id: str | None = None, key: str | None = None):
@@ -80,8 +118,6 @@ def start_hls(kind: str, stream_id: str, ext: str = "ts"):
     out.mkdir(parents=True, exist_ok=True)
     src = source_url(kind, stream_id, ext)
 
-    # Browser-friendly H.264/AAC HLS. This is intentionally transcoded because
-    # the user's Samsung browser could not decode the provider stream directly.
     cmd = [
         "ffmpeg", "-hide_banner", "-loglevel", "error",
         "-i", src,
@@ -112,7 +148,6 @@ def play(kind: str, stream_id: str, ext: str = "ts", key: str | None = None):
 
 @app.get("/hls/{job}/{file_name}")
 def hls(job: str, file_name: str):
-    # Only serve files inside the generated job directory.
     if "/" in job or "/" in file_name or "\\" in job or "\\" in file_name:
         raise HTTPException(400, "Invalid path")
     root = HLS_ROOT / job
