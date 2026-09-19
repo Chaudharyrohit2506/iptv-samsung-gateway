@@ -118,8 +118,9 @@ def start_hls(kind: str, stream_id: str, ext: str = "ts"):
     src = source_url(kind, stream_id, ext)
 
     cmd = [
-        "ffmpeg", "-hide_banner", "-loglevel", "error",
-        "-i", src,
+        "-user_agent", "VLC/3.0.20 LibVLC/3.0.20",
+"-headers", "Accept: */*\r\nConnection: keep-alive\r\n",
+"-i", src,
         "-map", "0:v:0?", "-map", "0:a:0?",
         "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
         "-pix_fmt", "yuv420p",
