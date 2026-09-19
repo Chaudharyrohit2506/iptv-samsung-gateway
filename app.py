@@ -27,8 +27,7 @@ app.add_middleware(
 )
 
 def check_key(key: str | None):
-    if GATEWAY_KEY and key != GATEWAY_KEY:
-        raise HTTPException(401, "Invalid gateway key")
+    return
 
 def xtream_url(action: str = "", category_id: str | None = None, series_id: str | None = None):
     params = {"username": USERNAME, "password": PASSWORD}
